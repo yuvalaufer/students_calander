@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מערכת יומן מורים</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; direction: rtl; text-align: right; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: right; }
+        th { background-color: #f2f2f2; }
+        .save-button { background-color: #4CAF50; color: white; padding: 10px 15px; border: none; cursor: pointer; margin-top: 20px; }
+        .auth-button { background-color: #DB4437; color: white; padding: 10px 15px; border: none; cursor: pointer; margin-bottom: 20px; }
+        .message { margin-top: 15px; padding: 10px; border-radius: 5px; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <h1>ניהול תלמידים ויומן</h1>
+    
+    <h2>שלב 1: חיבור ליומן Google</h2>
+    <p>חובה לבצע אימות חד-פעמי כדי לאפשר למערכת לקרוא את השיעורים שלך.</p>
+    <button class="auth-button" onclick="location.href='/api/auth/google'">התחבר ל-Google Calendar</button>
+
+    <hr>
+
+    <h2>שלב 2: ניהול תלמידים</h2>
+    <div id="student-list-container">טוען רשימת תלמידים...</div>
+
+    <button id="save-btn" class="save-button" onclick="saveStudents()">שמור שינויים ל-GitHub</button>
+    <div id="message-area" class="message" style="display: none;"></div>
+    
+    <hr>
+
+    <h2>שלב 3: תצוגת אירועי יומן (2 השבועות הקרובים)</h2>
+    <button onclick="fetchCalendarEvents()">טען אירועי יומן</button>
+    <div id="calendar-view"></div>
+
+    <script>
+        const studentListContainer = document.getElementById('student-list-container');
+        const calendarView = document.getElementById('calendar-view');
+        const messageArea = document.getElementById('message-area');
+        let students = []; 
+
+        function showMessage(msg, type) {
+            messageArea.innerHTML = msg;
+            messageArea.className = `message ${type}`;
+            messageArea.style.display = 'block';
+        }
+        
+        // --- פונקציות ניהול תלמידים (שליפה ושמירה) ---
+
+        async function fetchStudents() {
+            try {
+                const response = await fetch('/api/students');
+                if (!response.ok) {
+                    throw new Error(`שגיאה בשליפת נתונים: ${response.statusText}`);
+                }
+                students = await response.json();
+                renderTable();
+            } catch (error) {
+                studentListContainer.innerHTML = `<p class="error">${error.message}</p>`;
+                showMessage('שגיאה חמורה בשליפת נתונים מ-GitHub.', 'error');
+            }
+        }
+
+        function renderTable() {
+            if (students.length === 0) {
+                studentListContainer.innerHTML = '<p>לא נמצאו תלמידים. ניתן להוסיף אותם ישירות לקובץ students.json.</p>';
+                return;
+            }
+
+            let html = '<table>';
+            html += '<thead><tr><th>שם התלמיד</th><th>תדירות שיעורים</th></tr></thead>';
+            html += '<tbody>';
+
+            students.forEach((student, index) => {
+                html += `
+                    <tr>
+                        <td>${student.name}</td>
+                        <td>
+                            <select id="freq-${index}" data-index="${index}" onchange="updateStudentFrequency(this)">
+                                <option value="weekly" ${student.frequency === 'weekly' ? 'selected' : ''}>שבועי</option>
+                                <option value="biweekly" ${student.frequency === 'biweekly' ? 'selected' : ''}>דו-שבועי</option>
+                            </select>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            studentListContainer.innerHTML = html;
+        }
+
+        function updateStudentFrequency(selectElement) {
+            const index = selectElement.getAttribute('data-index');
+            students[index].frequency = selectElement.value;
+            showMessage('שינוי נקלט באופן מקומי. לחץ על "שמור שינויים" לשמירה קבועה.', 'success');
+        }
+        
+        async function saveStudents() {
+            showMessage('שולח נתונים ל-GitHub...', 'message');
+            document.getElementById('save-btn').disabled = true;
+
+            try {
+                const response = await fetch('/api/students/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ students: students }),
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'שגיאה כללית בשמירה.');
+                }
+                
+                showMessage(`✅ ${result.message} Commit URL: <a href="${result.commit_url}" target="_blank">לחץ לצפייה ב-Commit</a>`, 'success');
+                fetchStudents();
+
+            } catch (error) {
+                showMessage(`❌ שגיאה בשמירה: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('save-btn').disabled = false;
+            }
+        }
+
+        // --- פונקציות יומן (שליפה) ---
+        
+        async function fetchCalendarEvents() {
+            calendarView.innerHTML = 'טוען אירועים מיומן Google...';
+            try {
+                const response = await fetch('/api/calendar/events');
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'שגיאה כללית בשליפת יומן.');
+                }
+                
+                renderCalendarEvents(data);
+
+            } catch (error) {
+                calendarView.innerHTML = `<p class="error">❌ שגיאה בטעינת היומן: ${error.message}</p>`;
+                if (error.message.includes('Google not authenticated')) {
+                    calendarView.innerHTML += '<p class="error">אנא לחץ על כפתור "התחבר ל-Google Calendar" למעלה.</p>';
+                }
+            }
+        }
+
+        function renderCalendarEvents(events) {
+            if (events.length === 0) {
+                calendarView.innerHTML = '<p>לא נמצאו אירועים ביומן לשבועיים הקרובים.</p>';
+                return;
+            }
+            
+            let html = '<table><thead><tr><th>תאריך</th><th>שעה</th><th>תיאור</th></tr></thead><tbody>';
+            events.forEach(event => {
+                const date = new Date(event.start.dateTime || event.start.date);
+                const time = event.start.dateTime ? date.toLocaleTimeString('he-IL', {hour: '2-digit', minute:'2-digit'}) : 'כל היום';
+                html += `
+                    <tr>
+                        <td>${date.toLocaleDateString('he-IL')}</td>
+                        <td>${time}</td>
+                        <td>${event.summary}</td>
+                    </tr>
+                `;
+            });
+            html += '</tbody></table>';
+            calendarView.innerHTML = html;
+        }
+
+        // טעינת התלמידים בהפעלת הדף
+        fetchStudents();
+    </script>
+</body>
+</html>

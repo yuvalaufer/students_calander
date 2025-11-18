@@ -1,0 +1,12 @@
+[
+    {
+        "id": 1,
+        "name": "דני לוי",
+        "frequency": "weekly" 
+    },
+    {
+        "id": 2,
+        "name": "מאיה כהן",
+        "frequency": "biweekly"
+    }
+]
