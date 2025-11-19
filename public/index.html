@@ -3,175 +3,323 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>מערכת יומן מורים</title>
+    <title>מערכת לניהול שיעורים ותשלומים</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; direction: rtl; text-align: right; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: right; }
+        body { font-family: Arial, sans-serif; margin: 20px; direction: rtl; }
+        h1, h2 { text-align: center; color: #333; }
+        .container { max-width: 1000px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+        .section { margin-bottom: 30px; padding: 15px; border: 1px solid #eee; border-radius: 6px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
         th { background-color: #f2f2f2; }
-        .save-button { background-color: #4CAF50; color: white; padding: 10px 15px; border: none; cursor: pointer; margin-top: 20px; }
-        .auth-button { background-color: #DB4437; color: white; padding: 10px 15px; border: none; cursor: pointer; margin-bottom: 20px; }
-        .message { margin-top: 15px; padding: 10px; border-radius: 5px; }
-        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        input[type="text"], input[type="number"], select { padding: 5px; border-radius: 4px; border: 1px solid #ccc; }
+        button { padding: 10px 15px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px; }
+        button:hover { background-color: #45a049; }
+        .error { color: red; font-weight: bold; text-align: center; margin-top: 10px; }
+        .success { color: green; font-weight: bold; text-align: center; margin-top: 10px; }
+        .paid { background-color: #a8e6a8 !important; } /* ירוק בהיר לשולם */
+        .unpaid { background-color: #ff9999 !important; } /* אדום בהיר ללא שולם */
+        .summary-box { border: 2px solid #333; padding: 15px; margin-top: 20px; background-color: #f9f9f9; border-radius: 6px; }
     </style>
 </head>
 <body>
-    <h1>ניהול תלמידים ויומן</h1>
-    
-    <h2>שלב 1: חיבור ליומן Google</h2>
-    <p>חובה לבצע אימות חד-פעמי כדי לאפשר למערכת לקרוא את השיעורים שלך.</p>
-    <button class="auth-button" onclick="location.href='/api/auth/google'">התחבר ל-Google Calendar</button>
 
-    <hr>
+<div class="container">
+    <h1>מערכת ניהול יומן ותשלומים לתלמידים</h1>
 
-    <h2>שלב 2: ניהול תלמידים</h2>
-    <div id="student-list-container">טוען רשימת תלמידים...</div>
+    <div class="section">
+        <h2>שלב 1: חיבור ל-Google Calendar</h2>
+        <p>חובה לבצע חיבור ואשרור כדי לאפשר שליפת נתונים.</p>
+        <button onclick="location.href='/api/auth/google'">התחבר ל-Google Calendar</button>
+    </div>
 
-    <button id="save-btn" class="save-button" onclick="saveStudents()">שמור שינויים ל-GitHub</button>
-    <div id="message-area" class="message" style="display: none;"></div>
-    
-    <hr>
+    <div class="section">
+        <h2>שלב 2: ניהול תלמידים ומחירי שיעור</h2>
+        <p>עדכן את שמות התלמידים, תדירות השיעור והמחיר לשיעור. לחץ 'שמור' בסיום.</p>
+        <table id="studentsTable">
+            <thead>
+                <tr>
+                    <th>שם התלמיד</th>
+                    <th>תדירות (שבועי/דו-שבועי)</th>
+                    <th>מחיר שיעור (₪)</th>
+                    <th>פעולה</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <button onclick="addStudent()">הוסף תלמיד</button>
+        <button onclick="saveStudents()">שמור שינויים ל-GitHub</button>
+        <div id="studentMessage" class="message"></div>
+    </div>
 
-    <h2>שלב 3: תצוגת אירועי יומן (2 השבועות הקרובים)</h2>
-    <button onclick="fetchCalendarEvents()">טען אירועי יומן</button>
-    <div id="calendar-view"></div>
-
-    <script>
-        const studentListContainer = document.getElementById('student-list-container');
-        const calendarView = document.getElementById('calendar-view');
-        const messageArea = document.getElementById('message-area');
-        let students = []; 
-
-        function showMessage(msg, type) {
-            messageArea.innerHTML = msg;
-            messageArea.className = `message ${type}`;
-            messageArea.style.display = 'block';
-        }
+    <div class="section">
+        <h2>שלב 3: תצוגת אירועי יומן וסטטוס תשלום</h2>
+        <button onclick="loadCalendarEvents()">טען אירועי יומן לשבועיים הקרובים</button>
+        <div id="eventMessage" class="message"></div>
         
-        // --- פונקציות ניהול תלמידים (שליפה ושמירה) ---
+        <table id="eventsTable">
+            <thead>
+                <tr>
+                    <th>תאריך ושעה</th>
+                    <th>תלמיד</th>
+                    <th>מחיר (₪)</th>
+                    <th>סטטוס תשלום</th>
+                    <th>פעולה</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
 
-        async function fetchStudents() {
-            try {
-                const response = await fetch('/api/students');
-                if (!response.ok) {
-                    throw new Error(`שגיאה בשליפת נתונים: ${response.statusText}`);
-                }
-                students = await response.json();
-                renderTable();
-            } catch (error) {
-                studentListContainer.innerHTML = `<p class="error">${error.message}</p>`;
-                showMessage('שגיאה חמורה בשליפת נתונים מ-GitHub.', 'error');
-            }
+        <div id="paymentSummary" class="summary-box" style="display: none;">
+            <h3>סיכום תשלומים שהתקבלו</h3>
+        </div>
+    </div>
+</div>
+
+<script>
+    const STUDENTS_DEFAULT_PRICE = 170;
+    let students = [];
+    let studentsMap = {}; // לשמירת מחיר לפי שם
+    let currentEvents = [];
+
+    document.addEventListener('DOMContentLoaded', loadStudents);
+
+    // --- פונקציות ניהול תלמידים ---
+
+    async function loadStudents() {
+        try {
+            const response = await fetch('/api/students');
+            if (!response.ok) throw new Error('Failed to load students list.');
+            students = await response.json();
+            
+            // יצירת מפה נוחה לשימוש מהיר בהצגת אירועים
+            studentsMap = students.reduce((map, s) => {
+                map[s.name] = s.price || STUDENTS_DEFAULT_PRICE;
+                return map;
+            }, {});
+
+            renderStudentsTable();
+        } catch (error) {
+            console.error('Error loading students:', error);
+            document.getElementById('studentMessage').className = 'error';
+            document.getElementById('studentMessage').textContent = `שגיאה בטעינת תלמידים: ${error.message}`;
         }
+    }
 
-        function renderTable() {
-            if (students.length === 0) {
-                studentListContainer.innerHTML = '<p>לא נמצאו תלמידים. ניתן להוסיף אותם ישירות לקובץ students.json.</p>';
-                return;
-            }
+    function renderStudentsTable() {
+        const tableBody = document.querySelector('#studentsTable tbody');
+        tableBody.innerHTML = '';
 
-            let html = '<table>';
-            html += '<thead><tr><th>שם התלמיד</th><th>תדירות שיעורים</th></tr></thead>';
-            html += '<tbody>';
+        students.forEach((student, index) => {
+            const row = tableBody.insertRow();
+            row.innerHTML = `
+                <td><input type="text" value="${student.name}" onchange="updateStudent(event, ${index}, 'name')"></td>
+                <td>
+                    <select onchange="updateStudent(event, ${index}, 'frequency')">
+                        <option value="weekly" ${student.frequency === 'weekly' ? 'selected' : ''}>שבועי</option>
+                        <option value="biweekly" ${student.frequency === 'biweekly' ? 'selected' : ''}>דו-שבועי</option>
+                    </select>
+                </td>
+                <td><input type="number" value="${student.price || STUDENTS_DEFAULT_PRICE}" onchange="updateStudent(event, ${index}, 'price')"></td>
+                <td><button onclick="deleteStudent(${index})">מחק</button></td>
+            `;
+        });
+    }
 
-            students.forEach((student, index) => {
-                html += `
-                    <tr>
-                        <td>${student.name}</td>
-                        <td>
-                            <select id="freq-${index}" data-index="${index}" onchange="updateStudentFrequency(this)">
-                                <option value="weekly" ${student.frequency === 'weekly' ? 'selected' : ''}>שבועי</option>
-                                <option value="biweekly" ${student.frequency === 'biweekly' ? 'selected' : ''}>דו-שבועי</option>
-                            </select>
-                        </td>
-                    </tr>
-                `;
+    function addStudent() {
+        students.push({ name: '', frequency: 'weekly', price: STUDENTS_DEFAULT_PRICE });
+        renderStudentsTable();
+    }
+
+    function updateStudent(event, index, key) {
+        let value = event.target.value;
+        if (key === 'price') {
+            value = parseInt(value) || STUDENTS_DEFAULT_PRICE;
+        }
+        students[index][key] = value;
+    }
+
+    function deleteStudent(index) {
+        students.splice(index, 1);
+        renderStudentsTable();
+    }
+
+    async function saveStudents() {
+        try {
+            const response = await fetch('/api/students/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ students: students })
             });
 
-            html += '</tbody></table>';
-            studentListContainer.innerHTML = html;
-        }
-
-        function updateStudentFrequency(selectElement) {
-            const index = selectElement.getAttribute('data-index');
-            students[index].frequency = selectElement.value;
-            showMessage('שינוי נקלט באופן מקומי. לחץ על "שמור שינויים" לשמירה קבועה.', 'success');
-        }
-        
-        async function saveStudents() {
-            showMessage('שולח נתונים ל-GitHub...', 'message');
-            document.getElementById('save-btn').disabled = true;
-
-            try {
-                const response = await fetch('/api/students/save', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ students: students }),
-                });
-
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.error || 'שגיאה כללית בשמירה.');
-                }
-                
-                showMessage(`✅ ${result.message} Commit URL: <a href="${result.commit_url}" target="_blank">לחץ לצפייה ב-Commit</a>`, 'success');
-                fetchStudents();
-
-            } catch (error) {
-                showMessage(`❌ שגיאה בשמירה: ${error.message}`, 'error');
-            } finally {
-                document.getElementById('save-btn').disabled = false;
+            const result = await response.json();
+            const messageElement = document.getElementById('studentMessage');
+            
+            if (response.ok) {
+                messageElement.className = 'success';
+                messageElement.innerHTML = `${result.message} (<a href="${result.commit_url}" target="_blank">צפה ב-Commit</a>)`;
+                loadStudents(); // טען מחדש כדי לוודא עדכון המחיר במפה
+            } else {
+                throw new Error(result.error || 'שגיאה בשמירה ל-GitHub.');
             }
+        } catch (error) {
+            console.error('Error saving students:', error);
+            document.getElementById('studentMessage').className = 'error';
+            document.getElementById('studentMessage').textContent = `שגיאה בשמירה: ${error.message}`;
         }
+    }
 
-        // --- פונקציות יומן (שליפה) ---
-        
-        async function fetchCalendarEvents() {
-            calendarView.innerHTML = 'טוען אירועים מיומן Google...';
-            try {
-                const response = await fetch('/api/calendar/events');
-                const data = await response.json();
+    // --- פונקציות יומן ותשלומים ---
 
-                if (!response.ok) {
-                    throw new Error(data.error || 'שגיאה כללית בשליפת יומן.');
-                }
-                
-                renderCalendarEvents(data);
+    async function loadCalendarEvents() {
+        document.getElementById('eventMessage').textContent = 'טוען אירועי יומן...';
+        try {
+            const response = await fetch('/api/calendar/events');
+            const result = await response.json();
 
-            } catch (error) {
-                calendarView.innerHTML = `<p class="error">❌ שגיאה בטעינת היומן: ${error.message}</p>`;
-                if (error.message.includes('Google not authenticated')) {
-                    calendarView.innerHTML += '<p class="error">אנא לחץ על כפתור "התחבר ל-Google Calendar" למעלה.</p>';
-                }
-            }
-        }
-
-        function renderCalendarEvents(events) {
-            if (events.length === 0) {
-                calendarView.innerHTML = '<p>לא נמצאו אירועים ביומן לשבועיים הקרובים.</p>';
-                return;
+            if (!response.ok) {
+                throw new Error(result.error || 'שגיאה בשליפת יומן.');
             }
             
-            let html = '<table><thead><tr><th>תאריך</th><th>שעה</th><th>תיאור</th></tr></thead><tbody>';
-            events.forEach(event => {
-                const date = new Date(event.start.dateTime || event.start.date);
-                const time = event.start.dateTime ? date.toLocaleTimeString('he-IL', {hour: '2-digit', minute:'2-digit'}) : 'כל היום';
-                html += `
-                    <tr>
-                        <td>${date.toLocaleDateString('he-IL')}</td>
-                        <td>${time}</td>
-                        <td>${event.summary}</td>
-                    </tr>
-                `;
-            });
-            html += '</tbody></table>';
-            calendarView.innerHTML = html;
+            currentEvents = result;
+            renderEventsTable(currentEvents);
+            document.getElementById('eventMessage').className = 'success';
+            document.getElementById('eventMessage').textContent = `✅ נטענו ${currentEvents.length} אירועי יומן.`;
+        } catch (error) {
+            console.error('Error loading events:', error);
+            document.getElementById('eventMessage').className = 'error';
+            document.getElementById('eventMessage').textContent = `שגיאה בטעינת יומן: ${error.message}. אנא וודא שהתחברת ליומן בשלב 1.`;
+            document.querySelector('#eventsTable tbody').innerHTML = '';
+            document.getElementById('paymentSummary').style.display = 'none';
         }
+    }
 
-        // טעינת התלמידים בהפעלת הדף
-        fetchStudents();
-    </script>
+    function getStudentNameFromSummary(summary) {
+        // מנסה לזהות שם תלמיד בתוך כותרת האירוע (summary)
+        const knownNames = students.map(s => s.name).filter(n => n);
+        for (const name of knownNames) {
+            if (summary.includes(name)) {
+                return name;
+            }
+        }
+        return 'לא זוהה';
+    }
+    
+    function renderEventsTable(events) {
+        const tableBody = document.querySelector('#eventsTable tbody');
+        tableBody.innerHTML = '';
+        const paymentSummary = {};
+
+        events.forEach((event, index) => {
+            const row = tableBody.insertRow();
+            
+            const eventStart = new Date(event.start.dateTime || event.start.date);
+            const formattedDate = eventStart.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            const formattedTime = eventStart.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+            
+            const studentName = getStudentNameFromSummary(event.summary);
+            const lessonPrice = studentsMap[studentName] || STUDENTS_DEFAULT_PRICE;
+
+            const status = event.paymentStatus || 'לא בוצע עדיין';
+            const statusColorClass = status === 'שולם' ? 'paid' : (status === 'לא שולם' ? 'unpaid' : '');
+            row.className = statusColorClass;
+
+            row.innerHTML = `
+                <td>${formattedDate} בשעה ${formattedTime}</td>
+                <td>${studentName}</td>
+                <td>${lessonPrice}</td>
+                <td>
+                    <select id="status-${index}" onchange="updatePaymentStatus('${event.lessonKey}', this.value, ${index}, ${lessonPrice}, '${eventStart.toISOString()}')">
+                        <option value="לא בוצע עדיין" ${status === 'לא בוצע עדיין' ? 'selected' : ''}>---</option>
+                        <option value="שולם" ${status === 'שולם' ? 'selected' : ''}>שולם</option>
+                        <option value="לא שולם" ${status === 'לא שולם' ? 'selected' : ''}>לא שולם</option>
+                    </select>
+                </td>
+                <td><span id="save-status-${index}"></span></td>
+            `;
+
+            // הוספת נתונים לסיכום השבועי
+            const weekStartDate = getStartOfWeek(eventStart);
+            if (!paymentSummary[weekStartDate]) {
+                paymentSummary[weekStartDate] = { received: 0, startDate: eventStart };
+            }
+
+            if (status === 'שולם') {
+                paymentSummary[weekStartDate].received += lessonPrice;
+            }
+        });
+        
+        renderPaymentSummary(paymentSummary);
+    }
+
+    function getStartOfWeek(date) {
+        const d = new Date(date);
+        // יום ראשון (0) הוא תחילת השבוע בישראל, אבל JS משתמשת בו לראשון או ראשון. נניח יום ראשון.
+        const day = d.getDay(); 
+        const diff = d.getDate() - day;
+        const startOfWeek = new Date(d.setDate(diff));
+        startOfWeek.setHours(0, 0, 0, 0);
+        return startOfWeek.toISOString().split('T')[0];
+    }
+
+    function renderPaymentSummary(summaryData) {
+        const summaryBox = document.getElementById('paymentSummary');
+        let html = '<h3>סיכום תשלומים שהתקבלו</h3>';
+        
+        // מיון לפי תאריך התחלה
+        const sortedWeeks = Object.keys(summaryData).sort();
+
+        sortedWeeks.forEach(weekStartIso => {
+            const weekData = summaryData[weekStartIso];
+            const startOfWeek = new Date(weekStartIso);
+            const endOfWeek = new Date(startOfWeek.getTime() + 6 * 24 * 60 * 60 * 1000); // 6 ימים לאחר מכן (יום שבת)
+
+            const formattedStart = startOfWeek.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
+            const formattedEnd = endOfWeek.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
+
+            html += `
+                <p><strong>סה"כ תשלום שהתקבל לשבוע ${formattedStart} - ${formattedEnd}:</strong> ₪${weekData.received}</p>
+            `;
+        });
+
+        summaryBox.innerHTML = html;
+        summaryBox.style.display = 'block';
+    }
+
+    async function updatePaymentStatus(lessonKey, status, rowIndex, lessonPrice, eventStartIso) {
+        const tableRow = document.querySelector(`#eventsTable tbody tr:nth-child(${rowIndex + 1})`);
+        const messageElement = document.getElementById(`save-status-${rowIndex}`);
+        messageElement.textContent = 'שומר...';
+        
+        // 1. שמירת הסטטוס בשרת (GitHub)
+        try {
+            const response = await fetch('/api/payments/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lessonKey: lessonKey, status: status })
+            });
+
+            const result = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(result.error || 'שגיאה בשמירת הסטטוס.');
+            }
+            
+            // 2. עדכון צבע השורה
+            tableRow.className = status === 'שולם' ? 'paid' : (status === 'לא שולם' ? 'unpaid' : '');
+            
+            // 3. עדכון הודעת ההצלחה
+            messageElement.textContent = '✅ נשמר';
+            
+            // 4. עדכון הסיכום השבועי מיד (טעינה מחדש של הנתונים)
+            loadCalendarEvents(); 
+
+        } catch (error) {
+            console.error('Error saving payment status:', error);
+            messageElement.textContent = '❌ שגיאה בשמירה!';
+        }
+    }
+</script>
+
 </body>
 </html>

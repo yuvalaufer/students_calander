@@ -4,15 +4,27 @@ const express = require('express');
 const path = require('path');
 const { Octokit } = require("@octokit/rest");
 const { google } = require('googleapis');
+const basicAuth = require('express-basic-auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// הגדרות GitHub
+// --- 1. הגדרות אבטחה ---
+const USERS = {};
+USERS[process.env.AUTH_USERNAME] = process.env.AUTH_PASSWORD;
+
+app.use(basicAuth({
+    users: USERS,
+    challenge: true,
+    unauthorizedResponse: 'Unauthorized access. Please login.',
+}));
+
+// --- הגדרות GitHub ---
 const OWNER = process.env.GITHUB_REPO_OWNER;
 const REPO = process.env.GITHUB_REPO_NAME;
 const STUDENTS_FILE = 'students.json';
-const TOKENS_FILE = 'tokens.json'; // קובץ לשמירת טוקן Google Refresh Token
+const TOKENS_FILE = 'google_credentials.json';
+const PAYMENTS_FILE = 'payments.json'; // קובץ חדש לשמירת סטטוס תשלום
 
 // אתחול Octokit לגישה ל-GitHub API
 const octokit = new Octokit({
@@ -39,30 +51,23 @@ app.use(express.static(path.join(__dirname, 'public')));
 // פונקציות עזר ל-GitHub (שמירת נתונים)
 // ----------------------------------------------------
 
-// פונקציה כללית לשליפת קובץ מ-GitHub
 async function getFileFromGithub(fileName) {
     try {
         const response = await octokit.repos.getContent({ owner: OWNER, repo: REPO, path: fileName });
         const content = Buffer.from(response.data.content, 'base64').toString();
-        const data = JSON.parse(content);
+        // נשתמש ב-JSON.parse רק אם הקובץ אינו ריק (במיוחד payments.json בהתחלה)
+        const data = content ? JSON.parse(content) : null; 
         return { data: data, sha: response.data.sha };
     } catch (error) {
-        // אם הקובץ לא נמצא, נחזיר null
         if (error.status === 404) {
              return { data: null, sha: null };
         }
-        throw new Error(`Failed to fetch ${fileName} from GitHub.`);
+        throw new Error(`Failed to fetch ${fileName} from GitHub. Error: ${error.message}`);
     }
 }
 
-// פונקציה כללית לעדכון קובץ ב-GitHub
 async function updateFileInGithub(fileName, data, currentSha, commitMessage) {
-    // SHA נדרש לעדכון, אם הקובץ לא קיים, לא נבצע עדכון.
-    if (fileName !== TOKENS_FILE && !currentSha) {
-         throw new Error("SHA is required to update existing file.");
-    }
-    
-    // בגלל ש-tokens.json נוצר בפעם הראשונה, ה-SHA שלו יכול להיות null, וזה בסדר.
+    // אם לא קיים SHA (כמו בפעם הראשונה של payments.json), זה בסדר
     const content = Buffer.from(JSON.stringify(data, null, 4)).toString('base64');
     
     const response = await octokit.repos.createOrUpdateFileContents({
@@ -78,11 +83,7 @@ async function updateFileInGithub(fileName, data, currentSha, commitMessage) {
 }
 
 
-// ----------------------------------------------------
-// פונקציות אימות וטוקן ל-Google
-// ----------------------------------------------------
-
-// טעינת טוקן (אם קיים)
+// פונקציות טוקן ואימות
 async function loadTokens() {
     try {
         const fileResult = await getFileFromGithub(TOKENS_FILE);
@@ -93,30 +94,22 @@ async function loadTokens() {
         }
         return false;
     } catch (e) {
-        // שגיאות כאן לא צריכות להפיל את השרת, רק לתעדף אותן
         console.warn('Could not load Google tokens from GitHub:', e.message);
         return false;
     }
 }
 
-// שמירת טוקן חדש (לאחר אימות ראשוני)
 async function saveTokens(tokens) {
-    // 1. קוראים את הקובץ הנוכחי כדי לקבל את ה-SHA שלו
     const currentTokensFile = await getFileFromGithub(TOKENS_FILE);
-    
-    // 2. מוודאים ששומרים את refresh_token
     const dataToSave = {
         refresh_token: tokens.refresh_token,
         scope: tokens.scope,
         token_type: tokens.token_type,
         expiry_date: tokens.expiry_date
     };
-    
     if (!dataToSave.refresh_token) {
         throw new Error("Refresh token missing. Cannot save credentials.");
     }
-    
-    // 3. מעדכנים את הקובץ ב-GitHub
     await updateFileInGithub(TOKENS_FILE, dataToSave, currentTokensFile.sha, "Update: Google API Refresh Token.");
 }
 
@@ -125,18 +118,18 @@ async function saveTokens(tokens) {
 // נתיבים (API Routes)
 // ----------------------------------------------------
 
-// 1. נתיב התחברות ל-Google (יוזם את האימות)
+// נתיב אימות Google
 app.get('/api/auth/google', (req, res) => {
     const scopes = ['https://www.googleapis.com/auth/calendar.readonly'];
     const url = oauth2Client.generateAuthUrl({
-        access_type: 'offline', // חובה לקבלת Refresh Token קבוע
+        access_type: 'offline',
         scope: scopes,
         prompt: 'consent' 
     });
     res.redirect(url);
 });
 
-// 2. נתיב חזרה לאחר אימות (Redirect URI)
+// נתיב חזרה לאחר אימות
 app.get('/oauth2callback', async (req, res) => {
     const { code } = req.query;
     if (!code) {
@@ -145,12 +138,10 @@ app.get('/oauth2callback', async (req, res) => {
 
     try {
         const { tokens } = await oauth2Client.getToken(code);
-        
-        // מעדכנים את האובייקט המקומי ואת הקובץ ב-GitHub
         oauth2Client.setCredentials(tokens);
         await saveTokens(tokens);
         
-        res.send('<h1>✅ אימות Google Calendar הצליח!</h1><p>הטוקן נשמר בקובץ tokens.json ב-GitHub. המערכת מוכנה לשלוף אירועי יומן.</p><a href="/">חזרה לדף הראשי</a>');
+        res.send(`<h1>✅ אימות Google Calendar הצליח!</h1><p>הטוקן נשמר בקובץ ${TOKENS_FILE} ב-GitHub. המערכת מוכנה לשלוף אירועי יומן.</p><a href="/">חזרה לדף הראשי</a>`);
     } catch (error) {
         console.error('Error during Google OAuth callback:', error);
         res.status(500).send(`Authentication failed: ${error.message}.`);
@@ -158,17 +149,22 @@ app.get('/oauth2callback', async (req, res) => {
 });
 
 
-// 3. GET: שליפת רשימת התלמידים (מ-GitHub)
+// GET: שליפת רשימת התלמידים (כולל המחיר החדש)
 app.get('/api/students', async (req, res) => {
     try {
         const result = await getFileFromGithub(STUDENTS_FILE);
-        res.json(result.data || []);
+        // 💡 הוספת מחיר ברירת מחדל של 170
+        const students = (result.data || []).map(s => ({
+            ...s,
+            price: s.price || 170 // מחיר דיפולט
+        }));
+        res.json(students);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// 4. POST: שמירת רשימת התלמידים החדשה (ל-GitHub)
+// POST: שמירת רשימת התלמידים החדשה (מעדכן מחיר)
 app.post('/api/students/save', async (req, res) => {
     const newStudents = req.body.students; 
     if (!newStudents || !Array.isArray(newStudents)) {
@@ -177,7 +173,7 @@ app.post('/api/students/save', async (req, res) => {
 
     try {
         const currentFile = await getFileFromGithub(STUDENTS_FILE);
-        const updatedFile = await updateFileInGithub(STUDENTS_FILE, newStudents, currentFile.sha, "Update: Student list saved via Web UI.");
+        const updatedFile = await updateFileInGithub(STUDENTS_FILE, newStudents, currentFile.sha, "Update: Student list saved via Web UI (including prices).");
         
         res.json({ 
             success: true, 
@@ -191,11 +187,9 @@ app.post('/api/students/save', async (req, res) => {
     }
 });
 
-
-// 5. GET: שליפת אירועים מהיומן (שבועיים קדימה)
+// GET: שליפת אירועים מהיומן (שבועיים קדימה) + נתוני תשלום
 app.get('/api/calendar/events', async (req, res) => {
     try {
-        // לוודא שה-Refresh Token נטען
         await loadTokens(); 
 
         if (!oauth2Client.credentials || !oauth2Client.credentials.refresh_token) {
@@ -203,8 +197,9 @@ app.get('/api/calendar/events', async (req, res) => {
         }
 
         const today = new Date();
-        const twoWeeksAhead = new Date(today.getTime() + (14 * 24 * 60 * 60 * 1000)); // שבועיים קדימה
+        const twoWeeksAhead = new Date(today.getTime() + (14 * 24 * 60 * 60 * 1000));
 
+        // 1. שליפת אירועי יומן
         const response = await calendar.events.list({
             calendarId: 'primary', 
             timeMin: today.toISOString(),
@@ -212,13 +207,54 @@ app.get('/api/calendar/events', async (req, res) => {
             singleEvents: true,
             orderBy: 'startTime',
         });
+        const events = response.data.items || [];
+        
+        // 2. שליפת סטטוס תשלום קיים
+        const paymentsResult = await getFileFromGithub(PAYMENTS_FILE);
+        const payments = paymentsResult.data || {};
 
-        res.json(response.data.items);
+        // 3. הוספת סטטוס התשלום לכל אירוע (על ידי event.id)
+        const eventsWithPayment = events.map(event => ({
+            ...event,
+            paymentStatus: payments[event.id] ? payments[event.id].status : 'לא בוצע עדיין', // ברירת מחדל
+            lessonKey: event.id // מפתח ייחודי לשיעור
+        }));
+
+        res.json(eventsWithPayment);
     } catch (error) {
         console.error("Error fetching calendar events:", error.message);
         res.status(500).json({ error: `Failed to fetch calendar events. Error: ${error.message}` });
     }
 });
+
+// POST: שמירת סטטוס תשלום (ל-GitHub)
+app.post('/api/payments/save', async (req, res) => {
+    const { lessonKey, status } = req.body;
+    if (!lessonKey || !status) {
+        return res.status(400).json({ error: "Missing lessonKey or status." });
+    }
+
+    try {
+        const currentFile = await getFileFromGithub(PAYMENTS_FILE);
+        const currentPayments = currentFile.data || {};
+        
+        // עדכון הסטטוס הספציפי
+        currentPayments[lessonKey] = { status: status, updated: new Date().toISOString() };
+        
+        const updatedFile = await updateFileInGithub(PAYMENTS_FILE, currentPayments, currentFile.sha, `Update: Payment status for lesson ${lessonKey}.`);
+        
+        res.json({ 
+            success: true, 
+            message: "Payment status saved successfully!",
+            commit_url: updatedFile.commit.html_url
+        });
+        
+    } catch (error) {
+        console.error("Error in save payments route:", error);
+        res.status(500).json({ error: "Failed to save payment data to GitHub." });
+    }
+});
+
 
 // ----------------------------------------------------
 // הרצת השרת
