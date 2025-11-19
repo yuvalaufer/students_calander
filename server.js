@@ -30,6 +30,8 @@ const oauth2Client = new google.auth.OAuth2(
 const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
 app.use(express.json());
+
+// 💡 זה הנתיב שמגיש את index.html ואת שאר הקבצים מתיקיית public
 app.use(express.static(path.join(__dirname, 'public')));
 
 
@@ -56,11 +58,11 @@ async function getFileFromGithub(fileName) {
 // פונקציה כללית לעדכון קובץ ב-GitHub
 async function updateFileInGithub(fileName, data, currentSha, commitMessage) {
     // SHA נדרש לעדכון, אם הקובץ לא קיים, לא נבצע עדכון.
-    if (!currentSha && fileName !== TOKENS_FILE) {
+    if (fileName !== TOKENS_FILE && !currentSha) {
          throw new Error("SHA is required to update existing file.");
     }
     
-    // בגלל ש-tokens.json נוצר בפעם הראשונה, ה-SHA שלו יהיה null, וזה בסדר.
+    // בגלל ש-tokens.json נוצר בפעם הראשונה, ה-SHA שלו יכול להיות null, וזה בסדר.
     const content = Buffer.from(JSON.stringify(data, null, 4)).toString('base64');
     
     const response = await octokit.repos.createOrUpdateFileContents({
@@ -217,13 +219,6 @@ app.get('/api/calendar/events', async (req, res) => {
         res.status(500).json({ error: `Failed to fetch calendar events. Error: ${error.message}` });
     }
 });
-
-
-// 6. הגשת קבצים סטטיים
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 
 // ----------------------------------------------------
 // הרצת השרת
