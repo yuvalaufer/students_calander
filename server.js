@@ -202,8 +202,8 @@ app.get('/api/calendar/events', async (req, res) => {
         // 2. משיכת רשימת כל התלמידים מ-GitHub
         const studentsResult = await getFileFromGithub(STUDENTS_FILE);
         const allStudents = studentsResult.data || [];
-        // שמות התלמידים מומרים לאותיות קטנות לצורך השוואה קלה יותר
-        const studentNames = allStudents.map(s => s.name.toLowerCase());
+        // שמות התלמידים מומרים לאותיות קטנות ורווחים מיותרים מוסרים לצורך השוואה קלה יותר
+        const studentNames = allStudents.map(s => s.name.trim().toLowerCase()); // <--- התיקון כאן
         
         if (studentNames.length === 0) {
             console.log("Warning: No students found in students.json.");
@@ -228,8 +228,12 @@ app.get('/api/calendar/events', async (req, res) => {
             
             // בודק אם שם של תלמיד כלשהו כלול בסיכום האירוע
             const foundMatch = studentNames.some(name => {
+                // בדיקה גמישה: שם התלמיד (בלי רווחים מיותרים) נמצא איפשהו בכותרת האירוע
                 if (eventSummary.includes(name)) {
-                    foundStudents.add(name); // שמירת התלמיד שנקבע לו שיעור
+                    // כדי לשמור את השם המקורי לרשימת התלמידים שקבעו (FoundStudents) 
+                    // נצטרך למצוא את האובייקט המקורי.
+                    // פתרון פשוט: מוסיפים את שם התלמיד המנוקה לסט.
+                    foundStudents.add(name); 
                     return true;
                 }
                 return false;
@@ -239,7 +243,7 @@ app.get('/api/calendar/events', async (req, res) => {
         
         // 5. חישוב רשימת התלמידים שלא קבעו שיעור
         const studentsWithoutLessons = allStudents
-            .filter(student => !foundStudents.has(student.name.toLowerCase()))
+            .filter(student => !foundStudents.has(student.name.trim().toLowerCase()))
             .map(student => student.name);
 
         const paymentsResult = await getFileFromGithub(PAYMENTS_FILE);
