@@ -1,12 +1,27 @@
 [
     {
-        "id": 1,
-        "name": "דני לוי",
-        "frequency": "weekly" 
+        "name": "שיר שטיין",
+        "frequency": "biweekly",
+        "price": 170
     },
     {
-        "id": 2,
-        "name": "מאיה כהן",
-        "frequency": "biweekly"
+        "name": "אפרת כהן גיל",
+        "frequency": "biweekly",
+        "price": 170
+    },
+    {
+        "name": "הילה לנקסמן",
+        "frequency": "weekly",
+        "price": 170
+    },
+    {
+        "name": "ליה דוידוביץ",
+        "frequency": "weekly",
+        "price": 170
+    },
+    {
+        "name": "זיו רז",
+        "frequency": "weekly",
+        "price": 170
     }
 ]
