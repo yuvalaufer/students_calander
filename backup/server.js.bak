@@ -203,16 +203,26 @@ app.get('/api/calendar/events', async (req, res) => {
         const studentsResult = await getFileFromGithub(STUDENTS_FILE);
         const allStudents = studentsResult.data || [];
         
-        // יוצרים מפה של שמות נקיים של תלמידים (שם מלא או שם פרטי) 
-        // כדי להתמודד עם שמות פרטיים שמופיעים בכותרת לבד.
+        // יוצרים מפה של שמות נקיים של תלמידים
         const studentNamesMap = allStudents.reduce((map, s) => {
-            const fullNameClean = s.name.trim().toLowerCase();
-            map[fullNameClean] = s.name; // שם מלא נקי
+            const originalName = s.name.trim();
+            const lowerName = originalName.toLowerCase();
+
+            // פירוק השם למילים (פרטי, משפחה) וניקוין.
+            const nameParts = originalName.split(/\s+/).filter(p => p.length > 1); // מפריד לפי רווחים ומסנן מילים קצרות מדי
             
-            const firstName = s.name.split(' ')[0].trim().toLowerCase();
-            if (firstName && firstName !== fullNameClean) {
-                map[firstName] = s.name; // שם פרטי נקי
-            }
+            // מוסיף את השם המלא כביטוי חיפוש
+            map[lowerName] = originalName; 
+            
+            // מוסיף כל חלק מהשם כביטוי חיפוש
+            nameParts.forEach(part => {
+                const partLower = part.toLowerCase();
+                // מוסיף רק אם זה לא זהה לשם המלא
+                if (partLower !== lowerName && !map[partLower]) {
+                    map[partLower] = originalName; 
+                }
+            });
+
             return map;
         }, {});
         
@@ -241,14 +251,18 @@ app.get('/api/calendar/events', async (req, res) => {
             
             // מנקים ומקטלגים את כותרת האירוע
             const eventSummaryClean = event.summary
-                .replace(/[^א-תa-zA-Z\s]/g, ' ') // מוחקים תווים מיוחדים שיפריעו לחיפוש (כגון מקפים או קווים מפרידים)
+                .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, ' ') // מוחקים תווים מיוחדים נוספים
+                .replace(/\s{2,}/g," ") // מחליף רווחים כפולים ברווח יחיד
+                .trim()
                 .toLowerCase();
             
             // בודק אם שם תלמיד כלשהו כלול בכותרת האירוע
             const foundMatch = searchableNames.some(name => {
                 // בדיקה: האם הכותרת המנוקה מכילה את השם (שם מלא או שם פרטי)
                 if (eventSummaryClean.includes(name)) {
-                    foundStudents.add(studentNamesMap[name].trim().toLowerCase()); 
+                    // אנו שומרים את השם המקורי של התלמיד שמצאנו מהמפה
+                    const originalStudentName = studentNamesMap[name];
+                    foundStudents.add(originalStudentName.trim().toLowerCase()); 
                     return true;
                 }
                 return false;
