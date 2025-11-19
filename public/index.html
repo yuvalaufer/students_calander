@@ -190,10 +190,24 @@
             
             // יצירת מפה נוחה לשימוש מהיר בהצגת אירועים (מטפל במקרה של רווחים או אותיות קטנות/גדולות)
             studentsMap = students.reduce((map, s) => {
-                map[s.name.trim().toLowerCase()] = { 
+                const fullNameClean = s.name.trim().toLowerCase();
+                map[fullNameClean] = { 
                     price: s.price || STUDENTS_DEFAULT_PRICE, 
                     name: s.name // שם מקורי
                 };
+
+                // מוסיף גם שם פרטי אם שונה מהשם המלא
+                const firstName = s.name.split(' ')[0].trim().toLowerCase();
+                 if (firstName && firstName !== fullNameClean) {
+                    // חשוב: לא דורס אם שם פרטי של אחד זהה לשם מלא של אחר
+                    if (!map[firstName]) {
+                        map[firstName] = { 
+                            price: s.price || STUDENTS_DEFAULT_PRICE, 
+                            name: s.name // שם מקורי
+                        };
+                    }
+                }
+
                 return map;
             }, {});
 
@@ -269,6 +283,7 @@
         document.getElementById('eventMessage').textContent = 'טוען אירועי יומן...';
         document.getElementById('calendar-grid').innerHTML = ''; 
         document.getElementById('no-lessons-box').style.display = 'none';
+        document.getElementById('paymentSummary').style.display = 'none';
         
         try {
             const response = await fetch('/api/calendar/events');
@@ -432,20 +447,37 @@
         return startOfWeek.toISOString().split('T')[0];
     }
 
+    // פונקציה לחישוב וייצוג סיכום התשלומים (כולל התיקון לזיהוי שם התלמיד)
     function renderPaymentSummary(events) {
         const summaryBox = document.getElementById('paymentSummary');
         const paymentSummary = {};
 
         events.forEach(event => {
             const status = event.paymentStatus || 'לא בוצע עדיין';
+            // סופרים רק שיעורים ששולמו
             if (status !== 'שולם') return; 
 
-            // מנסה לזהות שם תלמיד מהכותרת
+            // 1. נקיון כותרת האירוע
             const eventSummaryLower = event.summary.trim().toLowerCase();
-            const studentEntry = Object.values(studentsMap).find(s => eventSummaryLower.includes(s.name.toLowerCase()));
-            const lessonPrice = studentEntry ? studentEntry.price : STUDENTS_DEFAULT_PRICE;
+            let lessonPrice = STUDENTS_DEFAULT_PRICE;
+
+            // 2. מציאת שם התלמיד והמחיר שלו מתוך המפה הקיימת (studentsMap)
+            let studentNameCleanMatch = null;
+
+            // עוברים על כל השמות המנוקים (שם מלא או שם פרטי) ומחפשים התאמה בכותרת
+            for (const cleanName in studentsMap) {
+                if (eventSummaryLower.includes(cleanName)) {
+                    studentNameCleanMatch = cleanName;
+                    break;
+                }
+            }
+
+            if (studentNameCleanMatch) {
+                lessonPrice = studentsMap[studentNameCleanMatch].price;
+            }
 
 
+            // 3. חישוב שבוע
             const eventStart = new Date(event.start.dateTime || event.start.date);
             const weekStartDate = getStartOfWeek(eventStart);
             
@@ -457,10 +489,14 @@
 
         let html = '<h3>סיכום תשלומים שהתקבלו</h3>';
         
+        // מיון לפי תאריך התחלה
         const sortedWeeks = Object.keys(paymentSummary).sort();
+        let totalIncome = 0; // משתנה לסיכום כולל
 
         sortedWeeks.forEach(weekStartIso => {
             const weekData = paymentSummary[weekStartIso];
+            totalIncome += weekData.received; // הוספה לסיכום הכולל
+
             const startOfWeek = new Date(weekStartIso);
             const endOfWeek = new Date(startOfWeek.getTime() + 6 * 24 * 60 * 60 * 1000); 
 
@@ -471,6 +507,13 @@
                 <p><strong>סה"כ תשלום שהתקבל לשבוע ${formattedStart} - ${formattedEnd}:</strong> ₪${weekData.received}</p>
             `;
         });
+        
+        // הוספת שורת הסיכום הכולל
+        if (totalIncome > 0) {
+             html += `<hr style="margin: 10px 0;">`;
+             html += `<p style="font-size: 1.2em; font-weight: bold; color: #0056b3;">סה"כ הכנסות מתשלומים שאושרו (בטווח הנבדק): ₪${totalIncome}</p>`;
+        }
+
 
         summaryBox.innerHTML = html;
         summaryBox.style.display = sortedWeeks.length > 0 ? 'block' : 'none';

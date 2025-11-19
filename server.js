@@ -202,10 +202,24 @@ app.get('/api/calendar/events', async (req, res) => {
         // 2. משיכת רשימת כל התלמידים מ-GitHub
         const studentsResult = await getFileFromGithub(STUDENTS_FILE);
         const allStudents = studentsResult.data || [];
-        // שמות התלמידים מומרים לאותיות קטנות ורווחים מיותרים מוסרים לצורך השוואה קלה יותר
-        const studentNames = allStudents.map(s => s.name.trim().toLowerCase()); // <--- התיקון כאן
         
-        if (studentNames.length === 0) {
+        // יוצרים מפה של שמות נקיים של תלמידים (שם מלא או שם פרטי) 
+        // כדי להתמודד עם שמות פרטיים שמופיעים בכותרת לבד.
+        const studentNamesMap = allStudents.reduce((map, s) => {
+            const fullNameClean = s.name.trim().toLowerCase();
+            map[fullNameClean] = s.name; // שם מלא נקי
+            
+            const firstName = s.name.split(' ')[0].trim().toLowerCase();
+            if (firstName && firstName !== fullNameClean) {
+                map[firstName] = s.name; // שם פרטי נקי
+            }
+            return map;
+        }, {});
+        
+        const searchableNames = Object.keys(studentNamesMap);
+
+
+        if (searchableNames.length === 0) {
             console.log("Warning: No students found in students.json.");
         }
 
@@ -224,16 +238,17 @@ app.get('/api/calendar/events', async (req, res) => {
         // 4. סינון האירועים ומציאת התלמידים שקבעו שיעור
         const filteredEvents = allEvents.filter(event => {
             if (!event.summary || !event.start || !event.start.dateTime) return false;
-            const eventSummary = event.summary.toLowerCase();
             
-            // בודק אם שם של תלמיד כלשהו כלול בסיכום האירוע
-            const foundMatch = studentNames.some(name => {
-                // בדיקה גמישה: שם התלמיד (בלי רווחים מיותרים) נמצא איפשהו בכותרת האירוע
-                if (eventSummary.includes(name)) {
-                    // כדי לשמור את השם המקורי לרשימת התלמידים שקבעו (FoundStudents) 
-                    // נצטרך למצוא את האובייקט המקורי.
-                    // פתרון פשוט: מוסיפים את שם התלמיד המנוקה לסט.
-                    foundStudents.add(name); 
+            // מנקים ומקטלגים את כותרת האירוע
+            const eventSummaryClean = event.summary
+                .replace(/[^א-תa-zA-Z\s]/g, ' ') // מוחקים תווים מיוחדים שיפריעו לחיפוש (כגון מקפים או קווים מפרידים)
+                .toLowerCase();
+            
+            // בודק אם שם תלמיד כלשהו כלול בכותרת האירוע
+            const foundMatch = searchableNames.some(name => {
+                // בדיקה: האם הכותרת המנוקה מכילה את השם (שם מלא או שם פרטי)
+                if (eventSummaryClean.includes(name)) {
+                    foundStudents.add(studentNamesMap[name].trim().toLowerCase()); 
                     return true;
                 }
                 return false;
