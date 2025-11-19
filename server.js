@@ -178,7 +178,9 @@ app.post('/api/students/save', async (req, res) => {
 });
 
 
-// ... (נתיבים ל-calendar ו-payments) ...
+// ----------------------------------------------------
+// נתיב לאירועי לוח שנה (API Routes) - עודכן לטיפול בחודשים
+// ----------------------------------------------------
 app.get('/api/calendar/events', async (req, res) => {
     try {
         await loadTokens(); 
@@ -187,16 +189,22 @@ app.get('/api/calendar/events', async (req, res) => {
             return res.status(401).json({ error: "Google not authenticated. Please navigate to /api/auth/google to connect." });
         }
         
-        // 1. הגדרת טווח הזמנים: תחילת השבוע הנוכחי עד שבועיים קדימה
-        const today = new Date();
-        const dayOfWeek = today.getDay(); // 0 = ראשון, 1 = שני...
-        const daysToSubtract = dayOfWeek; 
+        // 1. הגדרת טווח הזמנים: לפי חודש ושנה שנשלחו
+        const currentMonth = parseInt(req.query.month);
+        const currentYear = parseInt(req.query.year);
         
-        // יום ראשון של השבוע הנוכחי
-        const startOfWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysToSubtract);
+        if (isNaN(currentMonth) || isNaN(currentYear)) {
+             return res.status(400).json({ error: "Missing or invalid month/year parameters." });
+        }
+
+        // תאריך התחלה: היום הראשון בחודש
+        const startOfMonth = new Date(currentYear, currentMonth, 1);
         
-        // שבועיים קדימה (14 יום)
-        const twoWeeksAhead = new Date(startOfWeek.getTime() + (14 * 24 * 60 * 60 * 1000));
+        // תאריך סיום: היום הראשון בחודש הבא (שעה 00:00:00)
+        // new Date(year, month + 1, 0) נותן את היום האחרון של החודש הנוכחי
+        const endOfMonth = new Date(currentYear, currentMonth + 1, 0); 
+        // כדי לוודא שאנו כוללים את כל היום האחרון, נוסיף יום שלם לתאריך הסופי
+        const endOfRange = new Date(currentYear, currentMonth + 1, 1);
         
         
         // 2. משיכת רשימת כל התלמידים מ-GitHub
@@ -236,8 +244,8 @@ app.get('/api/calendar/events', async (req, res) => {
         // 3. משיכת אירועי יומן
         const response = await calendar.events.list({
             calendarId: 'primary', 
-            timeMin: startOfWeek.toISOString(), // תחילת השבוע הנוכחי
-            timeMax: twoWeeksAhead.toISOString(),
+            timeMin: startOfMonth.toISOString(), 
+            timeMax: endOfRange.toISOString(), // עד היום הראשון של החודש הבא (כדי לכלול את כל החודש הנוכחי)
             singleEvents: true,
             orderBy: 'startTime',
         });
@@ -288,7 +296,8 @@ app.get('/api/calendar/events', async (req, res) => {
         res.json({
             events: eventsWithPayment,
             studentsWithoutLessons: studentsWithoutLessons,
-            startDate: startOfWeek.toISOString() // נחזיר גם את תאריך ההתחלה לבניית לוח השנה
+            startDate: startOfMonth.toISOString(), // תחילת החודש
+            endDate: endOfMonth.toISOString() // סוף החודש
         });
         
     } catch (error) {
