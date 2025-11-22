@@ -15,7 +15,22 @@
         .success { color: green; font-weight: bold; text-align: center; margin-top: 10px; }
         .summary-box { border: 2px solid #333; padding: 15px; margin-top: 20px; background-color: #f9f9f9; border-radius: 6px; }
 
-        /* --- סטיילינג לוח שנה (דרישה 2) --- */
+        /* --- סטיילינג לוח שנה --- */
+        #calendar-header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 10px; 
+            padding: 5px 0;
+            border-bottom: 1px solid #ccc;
+        }
+        #current-month-display {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #0056b3;
+            text-align: center;
+            flex-grow: 1;
+        }
         #calendar-grid {
             display: grid;
             grid-template-columns: repeat(7, 1fr); /* 7 עמודות לימי השבוע */
@@ -35,7 +50,7 @@
         .day-cell {
             background-color: #fff;
             border: 1px solid #ddd;
-            min-height: 150px;
+            min-height: 100px; /* הוקטן כדי להתאים לתצוגה חודשית */
             padding: 5px;
             position: relative;
         }
@@ -53,18 +68,18 @@
             padding: 5px;
             background-color: #f0f0f0;
             border-radius: 3px;
-            font-size: 0.9em;
+            font-size: 0.8em; /* הוקטן כדי להתאים לתצוגה חודשית */
             cursor: pointer;
             border-right: 4px solid #aaa;
-            line-height: 1.3;
+            line-height: 1.2;
         }
-        .lesson-entry strong { font-size: 1.1em; }
+        .lesson-entry strong { font-size: 1.0em; }
 
         .paid { border-right-color: #28a745; background-color: #d4edda; }
         .unpaid { border-right-color: #dc3545; background-color: #f8d7da; }
         .pending { border-right-color: #ffc107; background-color: #fff3cd; }
 
-        /* --- סטיילינג תלמידים חסרים (דרישה 3) --- */
+        /* --- סטיילינג תלמידים חסרים --- */
         #no-lessons-box {
             margin-top: 30px;
             padding: 15px;
@@ -125,7 +140,12 @@
 
     <div class="section">
         <h2>שלב 3: תצוגת אירועי יומן וסטטוס תשלום</h2>
-        <button onclick="loadCalendarEvents()">טען אירועי יומן לשבועיים הקרובים</button>
+        <div id="calendar-controls">
+            <button onclick="navigateMonth(-1)">⬅️ חודש קודם</button>
+            <span id="current-month-label" style="font-weight: bold; margin: 0 15px;"></span>
+            <button onclick="navigateMonth(1)">חודש הבא ➡️</button>
+            <button onclick="loadCalendarEvents()">טען אירועי יומן לחודש הנוכחי</button>
+        </div>
         <div id="eventMessage" class="message"></div>
         
         <div id="calendar-grid-container">
@@ -134,22 +154,9 @@
         </div>
         
         <div id="no-lessons-box" style="display: none;">
-            <h3>⚠️ תלמידים ללא שיעור בטווח הנבדק</h3>
+            <h3>⚠️ תלמידים ללא שיעור בחודש זה</h3>
             <ul id="no-lessons-list"></ul>
         </div>
-
-        <table id="eventsTable">
-            <thead>
-                <tr>
-                    <th>תאריך ושעה</th>
-                    <th>תלמיד</th>
-                    <th>מחיר (₪)</th>
-                    <th>סטטוס תשלום</th>
-                    <th>פעולה</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
 
         <div id="paymentSummary" class="summary-box" style="display: none;">
             <h3>סיכום תשלומים שהתקבלו</h3>
@@ -177,10 +184,48 @@
     let students = [];
     let studentsMap = {}; 
     let currentLessonKey = null; 
+    
+    // מצב גלובלי לניווט חודשי
+    let currentMonth; // 0-11
+    let currentYear;
 
+    document.addEventListener('DOMContentLoaded', initializeCalendar);
     document.addEventListener('DOMContentLoaded', loadStudents);
 
-    // --- פונקציות ניהול תלמידים (ללא שינוי מהקובץ המקורי שלך) ---
+    function initializeCalendar() {
+        const today = new Date();
+        // הגדרת ברירת המחדל לחודש הנוכחי
+        currentMonth = today.getMonth(); 
+        currentYear = today.getFullYear();
+        updateMonthLabel();
+    }
+    
+    // מגביל את הטווח לשנתיים קדימה ושנתיים אחורה (סה"כ 5 שנים)
+    function navigateMonth(delta) {
+        const newDate = new Date(currentYear, currentMonth + delta, 1);
+        
+        const minYear = new Date().getFullYear() - 2;
+        const maxYear = new Date().getFullYear() + 2;
+        
+        // הגבלת הניווט
+        if (newDate.getFullYear() < minYear || newDate.getFullYear() > maxYear) {
+            alert("הניווט מוגבל לשנתיים קדימה ואחורה מהשנה הנוכחית.");
+            return; 
+        }
+
+        currentMonth = newDate.getMonth();
+        currentYear = newDate.getFullYear();
+        updateMonthLabel();
+        loadCalendarEvents();
+    }
+
+    function updateMonthLabel() {
+        const date = new Date(currentYear, currentMonth, 1);
+        const options = { year: 'numeric', month: 'long' };
+        document.getElementById('current-month-label').textContent = date.toLocaleDateString('he-IL', options);
+    }
+
+    // --- פונקציות ניהול תלמידים (ללא שינוי מהותי) ---
 
     async function loadStudents() {
         try {
@@ -188,24 +233,35 @@
             if (!response.ok) throw new Error('Failed to load students list.');
             students = await response.json();
             
-            // יצירת מפה נוחה לשימוש מהיר בהצגת אירועים (מטפל במקרה של רווחים או אותיות קטנות/גדולות)
+            // יצירת מפה נוחה לשימוש מהיר בהצגת אירועים 
             studentsMap = students.reduce((map, s) => {
-                map[s.name.trim().toLowerCase()] = { 
-                    price: s.price || STUDENTS_DEFAULT_PRICE, 
-                    name: s.name // שם מקורי
-                };
+                const originalName = s.name.trim();
+                const lowerName = originalName.toLowerCase();
+
+                const nameParts = originalName.split(/\s+/).filter(p => p.length > 1);
+                
+                map[lowerName] = { price: s.price || STUDENTS_DEFAULT_PRICE, name: originalName }; 
+                
+                nameParts.forEach(part => {
+                    const partLower = part.toLowerCase();
+                    if (partLower !== lowerName && !map[partLower]) {
+                        map[partLower] = { price: s.price || STUDENTS_DEFAULT_PRICE, name: originalName };
+                    }
+                });
+
                 return map;
             }, {});
 
             renderStudentsTable();
+            loadCalendarEvents(); // טען חודש נוכחי אוטומטית בפעם הראשונה
         } catch (error) {
             console.error('Error loading students:', error);
             document.getElementById('studentMessage').className = 'error';
             document.getElementById('studentMessage').textContent = `שגיאה בטעינת תלמידים: ${error.message}`;
         }
     }
-
-    function renderStudentsTable() {
+    
+    function renderStudentsTable() { /* (נשאר כפי שהיה) */
         const tableBody = document.querySelector('#studentsTable tbody');
         tableBody.innerHTML = '';
 
@@ -225,7 +281,7 @@
         });
     }
 
-    function updateStudent(event, index, key) {
+    function updateStudent(event, index, key) { /* (נשאר כפי שהיה) */
         let value = event.target.value;
         if (key === 'price') {
             value = parseInt(value) || STUDENTS_DEFAULT_PRICE;
@@ -233,12 +289,12 @@
         students[index][key] = value;
     }
 
-    function deleteStudent(index) {
+    function deleteStudent(index) { /* (נשאר כפי שהיה) */
         students.splice(index, 1);
         renderStudentsTable();
     }
 
-    async function saveStudents() {
+    async function saveStudents() { /* (נשאר כפי שהיה) */
         try {
             const response = await fetch('/api/students/save', {
                 method: 'POST',
@@ -263,27 +319,28 @@
         }
     }
 
-    // --- פונקציות יומן ותשלומים (מתוקנות) ---
+    // --- פונקציות יומן ותשלומים ---
 
     async function loadCalendarEvents() {
         document.getElementById('eventMessage').textContent = 'טוען אירועי יומן...';
         document.getElementById('calendar-grid').innerHTML = ''; 
         document.getElementById('no-lessons-box').style.display = 'none';
+        document.getElementById('paymentSummary').style.display = 'none';
         
         try {
-            const response = await fetch('/api/calendar/events');
+            // קריאה לשרת עם החודש והשנה שנבחרו
+            const response = await fetch(`/api/calendar/events?month=${currentMonth}&year=${currentYear}`);
             const result = await response.json();
 
             if (!response.ok) {
                 throw new Error(result.error || 'שגיאה בשליפת יומן.');
             }
             
-            // השרת מחזיר כעת אובייקט עם events ו-studentsWithoutLessons
-            renderCalendarGrid(result.events, result.startDate); 
+            renderCalendarGrid(result.events, result.startDate, result.endDate); 
             renderStudentsWithoutLessons(result.studentsWithoutLessons); 
             
             document.getElementById('eventMessage').className = 'success';
-            document.getElementById('eventMessage').textContent = `✅ נטענו ${result.events.length} אירועי יומן.`;
+            document.getElementById('eventMessage').textContent = `✅ נטענו ${result.events.length} אירועי יומן עבור ${document.getElementById('current-month-label').textContent}.`;
         } catch (error) {
             console.error('Error loading events:', error);
             document.getElementById('eventMessage').className = 'error';
@@ -291,60 +348,72 @@
         }
     }
 
-    // פונקציה לבניית תצוגת לוח השנה המרובעת (דרישה 2)
-    function renderCalendarGrid(events, startDateIso) {
+    // פונקציה לבניית תצוגת לוח השנה המרובעת (עודכן לטיפול בחודש שלם)
+    function renderCalendarGrid(events, startDateIso, endDateIso) {
         const calendarGrid = document.getElementById('calendar-grid');
         calendarGrid.innerHTML = '';
         const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
-        const daysMap = new Map();
         
-        // 1. יצירת כותרות הימים
+        // יצירת כותרות הימים
         dayNames.forEach(name => {
             const header = document.createElement('div');
             header.classList.add('day-header');
             header.textContent = name;
             calendarGrid.appendChild(header);
         });
-
-        // 2. הכנת המפה ל-14 הימים (מתחילים מה-startDate שחזר מהשרת)
+        
         const startDate = new Date(startDateIso);
-        for (let i = 0; i < 14; i++) {
-            const date = new Date(startDate.getTime() + (i * 24 * 60 * 60 * 1000));
-            const dateKey = date.toISOString().split('T')[0];
-            daysMap.set(dateKey, { date: date, events: [] });
+        const endDate = new Date(endDateIso);
+        
+        // 1. קביעת מספר ימי פתיחה (Offset)
+        // ה-API מחזיר יום ראשון כ-0, ה-CSS שלנו מתחיל ביום ראשון
+        const startDayOfWeek = startDate.getDay(); 
+        
+        // הוספת תאי ריקים לפני תחילת החודש (כדי להתאים ליום בשבוע)
+        for (let i = 0; i < startDayOfWeek; i++) {
+            const emptyCell = document.createElement('div');
+            emptyCell.classList.add('day-cell');
+            emptyCell.style.backgroundColor = '#f4f4f4'; 
+            emptyCell.style.border = '1px dashed #ccc';
+            calendarGrid.appendChild(emptyCell);
         }
 
-        // 3. מיון האירועים לתוך המפה
-        events.forEach(event => {
+        // 2. יצירת מפת אירועים לגישה מהירה
+        const eventsByDate = events.reduce((map, event) => {
             const dateKey = event.start.dateTime.split('T')[0];
-            if (daysMap.has(dateKey)) {
-                daysMap.get(dateKey).events.push(event);
-            }
-        });
-        
-        // 4. בניית ריבועי לוח השנה
-        daysMap.forEach((dayData, dateKey) => {
+            if (!map[dateKey]) map[dateKey] = [];
+            map[dateKey].push(event);
+            return map;
+        }, {});
+
+
+        // 3. בניית ריבועי החודש
+        let date = new Date(startDate);
+        while (date <= endDate) {
+            const dateKey = date.toISOString().split('T')[0];
+            
             const cell = document.createElement('div');
             cell.classList.add('day-cell');
             
             // תאריך
             const dateHeader = document.createElement('span');
             dateHeader.classList.add('date-label');
-            dateHeader.textContent = dayData.date.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
+            dateHeader.textContent = date.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
             cell.appendChild(dateHeader);
             
+            const dayEvents = eventsByDate[dateKey] || [];
+            
             // מיון האירועים לפי שעה
-            dayData.events.sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
+            dayEvents.sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
 
             // הוספת השיעורים לריבוע
-            dayData.events.forEach(event => {
+            dayEvents.forEach(event => {
                 const lessonEntry = document.createElement('div');
                 lessonEntry.classList.add('lesson-entry');
                 
                 const eventStart = new Date(event.start.dateTime);
                 const time = eventStart.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
                 
-                // דרישה 2: פשוט: 15:00 זיו רז
                 lessonEntry.innerHTML = `<strong>${time}</strong> ${event.summary.trim()}`;
                 
                 // סטטוס תשלום
@@ -362,13 +431,16 @@
             });
             
             calendarGrid.appendChild(cell);
-        });
+            
+            // עוברים ליום הבא
+            date.setDate(date.getDate() + 1);
+        }
         
-        renderPaymentSummary(events);
+        renderPaymentSummary(events, startDateIso);
     }
     
-    // פונקציה להצגת תלמידים שלא קבעו שיעור (דרישה 3)
-    function renderStudentsWithoutLessons(studentsList) {
+    // פונקציה להצגת תלמידים שלא קבעו שיעור (עודכן לכותרת חודשית)
+    function renderStudentsWithoutLessons(studentsList) { /* (נשאר כפי שהיה) */
         const noLessonsBox = document.getElementById('no-lessons-box');
         const noLessonsList = document.getElementById('no-lessons-list');
         noLessonsList.innerHTML = '';
@@ -387,19 +459,19 @@
 
     // --- פונקציות מודאל ותשלום ---
 
-    function openPaymentModal(event) {
+    function openPaymentModal(event) { /* (נשאר כפי שהיה) */
         currentLessonKey = event.lessonKey;
         document.getElementById('modalLessonName').textContent = `שיעור: ${event.summary}`;
         document.getElementById('paymentStatusSelect').value = event.paymentStatus || 'לא בוצע עדיין';
         document.getElementById('paymentModal').style.display = 'flex';
     }
 
-    function closePaymentModal() {
+    function closePaymentModal() { /* (נשאר כפי שהיה) */
         document.getElementById('paymentModal').style.display = 'none';
         currentLessonKey = null;
     }
     
-    async function savePaymentStatus() {
+    async function savePaymentStatus() { /* (נשאר כפי שהיה) */
         const status = document.getElementById('paymentStatusSelect').value;
         
         try {
@@ -424,7 +496,7 @@
 
     function getStartOfWeek(date) {
         const d = new Date(date);
-        // יום ראשון (0) הוא תחילת השבוע (כדי להתאים ללוגיקת השרת)
+        // יום ראשון (0) הוא תחילת השבוע 
         const day = d.getDay(); 
         const diff = d.getDate() - day;
         const startOfWeek = new Date(d.setDate(diff));
@@ -432,35 +504,49 @@
         return startOfWeek.toISOString().split('T')[0];
     }
 
+    // פונקציה לחישוב וייצוג סיכום התשלומים (עודכן לסיכום חודשי)
     function renderPaymentSummary(events) {
         const summaryBox = document.getElementById('paymentSummary');
         const paymentSummary = {};
+        let totalMonthlyIncome = 0; // סיכום כללי לחודש
 
         events.forEach(event => {
             const status = event.paymentStatus || 'לא בוצע עדיין';
+            // סופרים רק שיעורים ששולמו
             if (status !== 'שולם') return; 
 
-            // מנסה לזהות שם תלמיד מהכותרת
+            // 1. מציאת שם התלמיד והמחיר שלו 
             const eventSummaryLower = event.summary.trim().toLowerCase();
-            const studentEntry = Object.values(studentsMap).find(s => eventSummaryLower.includes(s.name.toLowerCase()));
-            const lessonPrice = studentEntry ? studentEntry.price : STUDENTS_DEFAULT_PRICE;
+            let lessonPrice = STUDENTS_DEFAULT_PRICE;
 
-
+            for (const cleanName in studentsMap) {
+                if (eventSummaryLower.includes(cleanName)) {
+                    lessonPrice = studentsMap[cleanName].price;
+                    break;
+                }
+            }
+            
+            // 2. חישוב שבוע וצבירת סכומים
             const eventStart = new Date(event.start.dateTime || event.start.date);
             const weekStartDate = getStartOfWeek(eventStart);
             
             if (!paymentSummary[weekStartDate]) {
                 paymentSummary[weekStartDate] = { received: 0, startDate: eventStart };
             }
+            
             paymentSummary[weekStartDate].received += lessonPrice;
+            totalMonthlyIncome += lessonPrice; // צבירה לסיכום החודשי
         });
 
         let html = '<h3>סיכום תשלומים שהתקבלו</h3>';
         
+        // מיון לפי תאריך התחלה
         const sortedWeeks = Object.keys(paymentSummary).sort();
 
+        // סיכום שבועי
         sortedWeeks.forEach(weekStartIso => {
             const weekData = paymentSummary[weekStartIso];
+
             const startOfWeek = new Date(weekStartIso);
             const endOfWeek = new Date(startOfWeek.getTime() + 6 * 24 * 60 * 60 * 1000); 
 
@@ -468,12 +554,19 @@
             const formattedEnd = endOfWeek.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
 
             html += `
-                <p><strong>סה"כ תשלום שהתקבל לשבוע ${formattedStart} - ${formattedEnd}:</strong> ₪${weekData.received}</p>
+                <p><strong>₪${weekData.received}</strong> - סה"כ תשלום שהתקבל לשבוע ${formattedStart} - ${formattedEnd}</p>
             `;
         });
+        
+        // סיכום חודשי כללי
+        if (totalMonthlyIncome > 0) {
+             html += `<hr style="margin: 10px 0;">`;
+             html += `<p style="font-size: 1.3em; font-weight: bold; color: #0056b3;">💰 סה"כ הכנסות חודשיות (תשלומים שאושרו): ₪${totalMonthlyIncome}</p>`;
+        }
+
 
         summaryBox.innerHTML = html;
-        summaryBox.style.display = sortedWeeks.length > 0 ? 'block' : 'none';
+        summaryBox.style.display = (sortedWeeks.length > 0 || totalMonthlyIncome > 0) ? 'block' : 'none';
     }
 </script>
 
