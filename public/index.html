@@ -16,7 +16,7 @@
         .summary-box { border: 2px solid #333; padding: 15px; margin-top: 20px; background-color: #f9f9f9; border-radius: 6px; }
 
         /* --- סטיילינג לוח שנה --- */
-        #calendar-header { 
+        #calendar-controls { 
             display: flex; 
             justify-content: space-between; 
             align-items: center; 
@@ -50,7 +50,7 @@
         .day-cell {
             background-color: #fff;
             border: 1px solid #ddd;
-            min-height: 100px; /* הוקטן כדי להתאים לתצוגה חודשית */
+            min-height: 100px; 
             padding: 5px;
             position: relative;
         }
@@ -68,7 +68,7 @@
             padding: 5px;
             background-color: #f0f0f0;
             border-radius: 3px;
-            font-size: 0.8em; /* הוקטן כדי להתאים לתצוגה חודשית */
+            font-size: 0.8em; 
             cursor: pointer;
             border-right: 4px solid #aaa;
             line-height: 1.2;
@@ -79,7 +79,7 @@
         .unpaid { border-right-color: #dc3545; background-color: #f8d7da; }
         .pending { border-right-color: #ffc107; background-color: #fff3cd; }
 
-        /* --- סטיילינג תלמידים חסרים --- */
+        /* --- סטיילינג תלמידים חסרים (עודכן) --- */
         #no-lessons-box {
             margin-top: 30px;
             padding: 15px;
@@ -88,20 +88,27 @@
             color: #8a6d3b;
             border-radius: 6px;
         }
-        #no-lessons-list {
+        .missing-list {
             list-style: none;
             padding: 0;
             margin-top: 10px;
-            display: flex;
-            flex-wrap: wrap;
         }
-        #no-lessons-list li {
+        .missing-list li {
             background-color: #f2dd73;
-            padding: 5px 10px;
-            margin-left: 10px;
-            margin-bottom: 5px;
-            border-radius: 3px;
-            font-weight: bold;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px; 
+            border: 1px solid #faebcc;
+        }
+        .missing-list li strong {
+            font-size: 1.1em; 
+            color: #8a6d3b;
+        }
+        .missing-list li ul {
+            list-style: none; 
+            padding-right: 0; 
+            margin-top: 5px; 
+            font-size: 0.9em;
         }
         
         /* הסתרת טבלת האירועים הישנה */
@@ -154,8 +161,13 @@
         </div>
         
         <div id="no-lessons-box" style="display: none;">
-            <h3>⚠️ תלמידים ללא שיעור בחודש זה</h3>
-            <ul id="no-lessons-list"></ul>
+            <h3>⚠️ תלמידים שחסר להם שיעור בחודש זה (לפי תדירות)</h3>
+            
+            <h4>תלמידים שבועיים שלא קבעו שיעור:</h4>
+            <ul id="weekly-missing-list" class="missing-list"></ul>
+            
+            <h4 style="margin-top: 15px;">תלמידים דו-שבועיים שלא קבעו שיעור:</h4>
+            <ul id="biweekly-missing-list" class="missing-list"></ul>
         </div>
 
         <div id="paymentSummary" class="summary-box" style="display: none;">
@@ -200,7 +212,7 @@
         updateMonthLabel();
     }
     
-    // מגביל את הטווח לשנתיים קדימה ושנתיים אחורה (סה"כ 5 שנים)
+    // מגביל את הטווח לשנתיים קדימה ושנתיים אחורה
     function navigateMonth(delta) {
         const newDate = new Date(currentYear, currentMonth + delta, 1);
         
@@ -225,7 +237,7 @@
         document.getElementById('current-month-label').textContent = date.toLocaleDateString('he-IL', options);
     }
 
-    // --- פונקציות ניהול תלמידים (ללא שינוי מהותי) ---
+    // --- פונקציות ניהול תלמידים ---
 
     async function loadStudents() {
         try {
@@ -261,7 +273,7 @@
         }
     }
     
-    function renderStudentsTable() { /* (נשאר כפי שהיה) */
+    function renderStudentsTable() {
         const tableBody = document.querySelector('#studentsTable tbody');
         tableBody.innerHTML = '';
 
@@ -281,7 +293,7 @@
         });
     }
 
-    function updateStudent(event, index, key) { /* (נשאר כפי שהיה) */
+    function updateStudent(event, index, key) {
         let value = event.target.value;
         if (key === 'price') {
             value = parseInt(value) || STUDENTS_DEFAULT_PRICE;
@@ -289,12 +301,12 @@
         students[index][key] = value;
     }
 
-    function deleteStudent(index) { /* (נשאר כפי שהיה) */
+    function deleteStudent(index) {
         students.splice(index, 1);
         renderStudentsTable();
     }
 
-    async function saveStudents() { /* (נשאר כפי שהיה) */
+    async function saveStudents() {
         try {
             const response = await fetch('/api/students/save', {
                 method: 'POST',
@@ -337,7 +349,8 @@
             }
             
             renderCalendarGrid(result.events, result.startDate, result.endDate); 
-            renderStudentsWithoutLessons(result.studentsWithoutLessons); 
+            // קורא לפונקציה החדשה
+            renderStudentsMissingLessons(result.studentsMissingLessons); 
             
             document.getElementById('eventMessage').className = 'success';
             document.getElementById('eventMessage').textContent = `✅ נטענו ${result.events.length} אירועי יומן עבור ${document.getElementById('current-month-label').textContent}.`;
@@ -348,7 +361,7 @@
         }
     }
 
-    // פונקציה לבניית תצוגת לוח השנה המרובעת (עודכן לטיפול בחודש שלם)
+    // פונקציה לבניית תצוגת לוח השנה המרובעת
     function renderCalendarGrid(events, startDateIso, endDateIso) {
         const calendarGrid = document.getElementById('calendar-grid');
         calendarGrid.innerHTML = '';
@@ -366,10 +379,9 @@
         const endDate = new Date(endDateIso);
         
         // 1. קביעת מספר ימי פתיחה (Offset)
-        // ה-API מחזיר יום ראשון כ-0, ה-CSS שלנו מתחיל ביום ראשון
         const startDayOfWeek = startDate.getDay(); 
         
-        // הוספת תאי ריקים לפני תחילת החודש (כדי להתאים ליום בשבוע)
+        // הוספת תאי ריקים לפני תחילת החודש
         for (let i = 0; i < startDayOfWeek; i++) {
             const emptyCell = document.createElement('div');
             emptyCell.classList.add('day-cell');
@@ -389,7 +401,15 @@
 
         // 3. בניית ריבועי החודש
         let date = new Date(startDate);
-        while (date <= endDate) {
+        // מוודאים שאנחנו נשארים בגבולות החודש הנוכחי
+        const monthBoundary = endDate.getMonth();
+        const yearBoundary = endDate.getFullYear();
+        
+        // כדי לכלול את היום האחרון, נשתמש בבדיקה מול היום הראשון של החודש הבא
+        const nextMonthStart = new Date(yearBoundary, monthBoundary + 1, 1);
+
+        while (date < nextMonthStart && (date.getMonth() === monthBoundary || date.getMonth() === startDate.getMonth())) {
+            
             const dateKey = date.toISOString().split('T')[0];
             
             const cell = document.createElement('div');
@@ -439,39 +459,61 @@
         renderPaymentSummary(events, startDateIso);
     }
     
-    // פונקציה להצגת תלמידים שלא קבעו שיעור (עודכן לכותרת חודשית)
-    function renderStudentsWithoutLessons(studentsList) { /* (נשאר כפי שהיה) */
+    // פונקציה להצגת תלמידים שחסר להם שיעור (מעודכן)
+    function renderStudentsMissingLessons(missingData) {
         const noLessonsBox = document.getElementById('no-lessons-box');
-        const noLessonsList = document.getElementById('no-lessons-list');
-        noLessonsList.innerHTML = '';
+        const weeklyList = document.getElementById('weekly-missing-list');
+        const biweeklyList = document.getElementById('biweekly-missing-list');
         
-        if (studentsList && studentsList.length > 0) {
-            noLessonsBox.style.display = 'block';
-            studentsList.forEach(name => {
-                const li = document.createElement('li');
-                li.textContent = name;
-                noLessonsList.appendChild(li);
-            });
-        } else {
+        weeklyList.innerHTML = '';
+        biweeklyList.innerHTML = '';
+
+        const weekly = missingData.weekly || [];
+        const biweekly = missingData.biweekly || [];
+        
+        if (weekly.length === 0 && biweekly.length === 0) {
             noLessonsBox.style.display = 'none';
+            return;
         }
+        
+        // פונקציית עזר לבניית רשימת השבועות החסרים
+        const buildMissingHtml = (studentsArray) => {
+            let html = '';
+            studentsArray.forEach(student => {
+                html += `
+                    <li>
+                        <strong>${student.name}</strong>
+                        <ul style="list-style: none; padding-right: 0; margin-top: 5px; font-size: 0.9em;">
+                            ${student.missingWeeks.map(range => `<li>📅 חסר שיעור בשבוע: ${range}</li>`).join('')}
+                        </ul>
+                    </li>
+                `;
+            });
+            return html;
+        };
+
+        weeklyList.innerHTML = buildMissingHtml(weekly);
+        biweeklyList.innerHTML = buildMissingHtml(biweekly);
+        
+        noLessonsBox.style.display = 'block';
     }
+
 
     // --- פונקציות מודאל ותשלום ---
 
-    function openPaymentModal(event) { /* (נשאר כפי שהיה) */
+    function openPaymentModal(event) {
         currentLessonKey = event.lessonKey;
         document.getElementById('modalLessonName').textContent = `שיעור: ${event.summary}`;
         document.getElementById('paymentStatusSelect').value = event.paymentStatus || 'לא בוצע עדיין';
         document.getElementById('paymentModal').style.display = 'flex';
     }
 
-    function closePaymentModal() { /* (נשאר כפי שהיה) */
+    function closePaymentModal() {
         document.getElementById('paymentModal').style.display = 'none';
         currentLessonKey = null;
     }
     
-    async function savePaymentStatus() { /* (נשאר כפי שהיה) */
+    async function savePaymentStatus() {
         const status = document.getElementById('paymentStatusSelect').value;
         
         try {
@@ -484,7 +526,7 @@
             if (response.ok) {
                 alert('סטטוס תשלום נשמר בהצלחה!');
                 closePaymentModal();
-                loadCalendarEvents(); // טען מחדש את הנתונים כדי לעדכן את לוח השנה והסיכום
+                loadCalendarEvents(); // טען מחדש את הנתונים
             } else {
                 const data = await response.json();
                 alert('שגיאה בשמירת תשלום: ' + (data.error || 'שגיאה לא ידועה'));
@@ -504,7 +546,7 @@
         return startOfWeek.toISOString().split('T')[0];
     }
 
-    // פונקציה לחישוב וייצוג סיכום התשלומים (עודכן לסיכום חודשי)
+    // פונקציה לחישוב וייצוג סיכום התשלומים
     function renderPaymentSummary(events) {
         const summaryBox = document.getElementById('paymentSummary');
         const paymentSummary = {};
