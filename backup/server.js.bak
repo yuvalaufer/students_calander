@@ -98,6 +98,31 @@ async function loadTokens() {
 
 
 // ----------------------------------------------------
+// פונקציות עזר לחישוב שבועות
+// ----------------------------------------------------
+
+// פונקציית עזר למציאת תחילת השבוע (יום ראשון)
+const getStartOfWeek = (date) => {
+    const d = new Date(date);
+    const day = d.getDay(); // יום ראשון = 0
+    const diff = d.getDate() - day;
+    const startOfWeek = new Date(d.setDate(diff));
+    startOfWeek.setHours(0, 0, 0, 0);
+    return startOfWeek;
+};
+
+// פונקציית עזר למציאת סוף השבוע (יום שבת)
+const getEndOfWeek = (date) => {
+    const d = new Date(date);
+    const day = d.getDay(); // יום ראשון = 0
+    const diff = d.getDate() + (6 - day);
+    const endOfWeek = new Date(d.setDate(diff));
+    endOfWeek.setHours(23, 59, 59, 999);
+    return endOfWeek;
+};
+
+
+// ----------------------------------------------------
 // נתיבים (API Routes)
 // ----------------------------------------------------
 
@@ -179,7 +204,7 @@ app.post('/api/students/save', async (req, res) => {
 
 
 // ----------------------------------------------------
-// נתיב לאירועי לוח שנה (API Routes) - עודכן לטיפול בחודשים
+// נתיב לאירועי לוח שנה (API Routes) - עודכן לטיפול בחודשים ותדירות
 // ----------------------------------------------------
 app.get('/api/calendar/events', async (req, res) => {
     try {
@@ -200,10 +225,9 @@ app.get('/api/calendar/events', async (req, res) => {
         // תאריך התחלה: היום הראשון בחודש
         const startOfMonth = new Date(currentYear, currentMonth, 1);
         
-        // תאריך סיום: היום הראשון בחודש הבא (שעה 00:00:00)
-        // new Date(year, month + 1, 0) נותן את היום האחרון של החודש הנוכחי
+        // תאריך סיום: היום האחרון בחודש
         const endOfMonth = new Date(currentYear, currentMonth + 1, 0); 
-        // כדי לוודא שאנו כוללים את כל היום האחרון, נוסיף יום שלם לתאריך הסופי
+        // היום הראשון בחודש הבא (כדי לכלול את כל החודש הנוכחי בטווח API)
         const endOfRange = new Date(currentYear, currentMonth + 1, 1);
         
         
@@ -245,7 +269,7 @@ app.get('/api/calendar/events', async (req, res) => {
         const response = await calendar.events.list({
             calendarId: 'primary', 
             timeMin: startOfMonth.toISOString(), 
-            timeMax: endOfRange.toISOString(), // עד היום הראשון של החודש הבא (כדי לכלול את כל החודש הנוכחי)
+            timeMax: endOfRange.toISOString(), 
             singleEvents: true,
             orderBy: 'startTime',
         });
@@ -278,10 +302,144 @@ app.get('/api/calendar/events', async (req, res) => {
             return foundMatch;
         });
         
-        // 5. חישוב רשימת התלמידים שלא קבעו שיעור
+        // 5. **לוגיקה חדשה:** חישוב אילו שבועות חסרים לכל תלמיד
+
+        // יצירת מפה של אירועים לפי תלמיד ומחולק לפי שבוע
+        const lessonsByStudentAndWeek = {};
+
+        filteredEvents.forEach(event => {
+            if (!event.summary || !event.start || !event.start.dateTime) return;
+            
+            // מציאת השם המקורי של התלמיד מהאירוע
+            const eventSummaryLower = event.summary.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, ' ').replace(/\s{2,}/g," ").trim().toLowerCase();
+            let originalStudentName = null;
+            for (const name in studentNamesMap) {
+                if (eventSummaryLower.includes(name)) {
+                    originalStudentName = studentNamesMap[name];
+                    break;
+                }
+            }
+            
+            if (originalStudentName) {
+                const studentKey = originalStudentName.trim();
+                const startOfWeek = getStartOfWeek(new Date(event.start.dateTime));
+                const weekKey = startOfWeek.toISOString().split('T')[0];
+                
+                if (!lessonsByStudentAndWeek[studentKey]) lessonsByStudentAndWeek[studentKey] = {};
+                if (!lessonsByStudentAndWeek[studentKey][weekKey]) lessonsByStudentAndWeek[studentKey][weekKey] = [];
+                
+                lessonsByStudentAndWeek[studentKey][weekKey].push(event);
+            }
+        });
+
+
+        // יצירת רשימת השבועות המלאה בחודש הנבחר
+        const weeksInMonth = [];
+        let currentDate = getStartOfWeek(startOfMonth);
+
+        while (currentDate < endOfRange) {
+            const weekStart = new Date(currentDate);
+            const weekEnd = getEndOfWeek(weekStart);
+            
+            // מוודא שהשבוע רלוונטי לחודש הנתון (לפחות חלק ממנו)
+            if (weekStart < endOfRange && weekEnd > startOfMonth) {
+                // מחשבים את טווח התצוגה (חתך בין השבוע לחודש)
+                const displayStart = new Date(Math.max(weekStart.getTime(), startOfMonth.getTime()));
+                const displayEnd = new Date(Math.min(weekEnd.getTime(), endOfMonth.getTime()));
+                
+                // טווח מוצג:
+                const displayDateRange = `${displayStart.getDate()}/${displayStart.getMonth() + 1} - ${displayEnd.getDate()}/${displayEnd.getMonth() + 1}`;
+                
+                weeksInMonth.push({
+                    key: weekStart.toISOString().split('T')[0],
+                    rangeStart: weekStart,
+                    rangeEnd: weekEnd,
+                    displayRange: displayDateRange
+                });
+            }
+
+            // קופצים לשבוע הבא
+            currentDate.setDate(currentDate.getDate() + 7);
+        }
+
+
+        // בדיקה לכל תלמיד אילו שבועות חסרים לו
+        const studentsMissingLessons = {
+            weekly: [],
+            biweekly: []
+        };
+
+
+        allStudents.forEach(student => {
+            const studentKey = student.name.trim();
+            const studentFrequency = student.frequency || 'weekly'; // ברירת מחדל לשבועי
+            const studentLessons = lessonsByStudentAndWeek[studentKey] || {};
+            const missingWeeks = [];
+
+            // בדיקה לתלמיד שבועי
+            if (studentFrequency === 'weekly') {
+                weeksInMonth.forEach(week => {
+                    if (!studentLessons[week.key] || studentLessons[week.key].length === 0) {
+                        missingWeeks.push(week.displayRange);
+                    }
+                });
+                
+                if (missingWeeks.length > 0) {
+                    studentsMissingLessons.weekly.push({
+                        name: student.name,
+                        missingWeeks: missingWeeks
+                    });
+                }
+            } 
+            
+            // בדיקה לתלמיד דו-שבועי
+            else if (studentFrequency === 'biweekly') {
+                // בודקים בכל זוג שבועות אם יש שיעור אחד לפחות.
+                // אם מספר השבועות הכולל הוא אי זוגי, השבוע האחרון ייבדק לבד.
+                for (let i = 0; i < weeksInMonth.length; i += 2) {
+                    const week1 = weeksInMonth[i];
+                    const week2 = weeksInMonth[i + 1];
+                    
+                    const hasLessonWeek1 = studentLessons[week1.key] && studentLessons[week1.key].length > 0;
+                    const hasLessonWeek2 = week2 ? (studentLessons[week2.key] && studentLessons[week2.key].length > 0) : false;
+                    
+                    // אם אין שיעור באף אחד משני השבועות
+                    if (!hasLessonWeek1 && !hasLessonWeek2) {
+                        // טווח הצגה הוא שבועיים או שבוע בודד אם נשאר שבוע אחרון
+                        let displayRange;
+                        if (week2) {
+                            // דו-שבועי חסר
+                            const start = week1.displayRange.split(' - ')[0];
+                            const end = week2.displayRange.split(' - ')[1];
+                            displayRange = `${start} - ${end}`;
+                        } else {
+                            // שבוע בודד חסר בסוף החודש (שבוע 1)
+                            displayRange = week1.displayRange;
+                        }
+                        missingWeeks.push(displayRange);
+                    }
+                }
+
+                if (missingWeeks.length > 0) {
+                    studentsMissingLessons.biweekly.push({
+                        name: student.name,
+                        missingWeeks: missingWeeks
+                    });
+                }
+            }
+        });
+
+        // 6. הרשימה הכללית של תלמידים שלא קבעו (לשם שמירת פורמט תגובה)
         const studentsWithoutLessons = allStudents
-            .filter(student => !foundStudents.has(student.name.trim().toLowerCase()))
+            .filter(student => {
+                const studentKey = student.name.trim();
+                // מוודאים אם התלמיד נמצא באחת מרשימות החסרים
+                const isMissingWeekly = studentsMissingLessons.weekly.some(s => s.name.trim() === studentKey);
+                const isMissingBiweekly = studentsMissingLessons.biweekly.some(s => s.name.trim() === studentKey);
+                return isMissingWeekly || isMissingBiweekly;
+            })
             .map(student => student.name);
+
 
         const paymentsResult = await getFileFromGithub(PAYMENTS_FILE);
         const payments = paymentsResult.data || {};
@@ -292,12 +450,13 @@ app.get('/api/calendar/events', async (req, res) => {
             lessonKey: event.id
         }));
         
-        // החזרת הנתונים המעובדים, כולל רשימת התלמידים שלא קבעו
+        // 7. החזרת הנתונים המעובדים, כולל רשימת התלמידים החסרים המפורטת
         res.json({
             events: eventsWithPayment,
-            studentsWithoutLessons: studentsWithoutLessons,
-            startDate: startOfMonth.toISOString(), // תחילת החודש
-            endDate: endOfMonth.toISOString() // סוף החודש
+            studentsWithoutLessons: studentsWithoutLessons, // הרשימה הכללית
+            studentsMissingLessons: studentsMissingLessons, // הרשימה המפורטת
+            startDate: startOfMonth.toISOString(), 
+            endDate: endOfMonth.toISOString()
         });
         
     } catch (error) {
